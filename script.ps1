@@ -1,8 +1,8 @@
 # ==============================================================================
-# CleanerDS — Discord Optimization Tool (Encoding-Safe Edition)
+# CleanerDS — Discord Optimization Tool (Base64 Encoding-Safe)
 # ==============================================================================
 
-# Авто-скрытие консоли
+# 1. Авто-скрытие консоли PowerShell ("поварёшки")
 $AsyncScript = {
     $code = '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);'
     $type = Add-Type -MemberDefinition $code -Name "Win32ShowWindow" -Namespace "Win32Utils" -PassThru
@@ -11,9 +11,10 @@ $AsyncScript = {
 }
 try { &$AsyncScript } catch { }
 
-# Принудительная установка UTF-8 для сессии
-[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$OutputEncoding = [System.Text.Encoding]::UTF8
+# Функция безопасного декодирования строк из Base64
+function Dec-S([string]$b64) {
+    return [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($b64))
+}
 
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
@@ -24,7 +25,7 @@ $script:MutexCreated = $false
 $script:Mutex = New-Object System.Threading.Mutex($true, $script:AppMutexName, [ref]$script:MutexCreated)
 
 if (-not $script:MutexCreated) {
-    [System.Windows.Forms.MessageBox]::Show("Приложение CleanerDS уже запущено!", "CleanerDS", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+    [System.Windows.Forms.MessageBox]::Show((Dec-S "0J/RgNC40LvQvtC20LXQvdC40LUgQ2xlYW5lckRTINGD0LbQtSDQt9Cw0L/Rg9GJ0LXQvdC4IQ=="), "CleanerDS", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
     exit
 }
 
@@ -77,7 +78,7 @@ function Find-Discord {
 function Stop-Discord {
     $processes = Get-Process -Name "Discord" -ErrorAction SilentlyContinue
     if ($processes) {
-        Write-Log -Message "Завершение процессов Discord..." -Level "WARN"
+        Write-Log -Message (Dec-S "0JfQsNCy0LXRgNGI0LXQvdC40LUg0L/RgNC%2B0YbQtdGB0YHQvtCyIERpc2NvcmQuLi4=") -Level "WARN"
         $processes | Stop-Process -Force -ErrorAction SilentlyContinue
         Start-Sleep -Seconds 2
     }
@@ -90,7 +91,7 @@ function Start-Discord {
         $exePath = Join-Path -Path $appFolder -ChildPath "Discord.exe"
         if (Test-Path -Path $exePath) {
             Start-Process -FilePath $exePath
-            Write-Log -Message "Discord запущен." -Level "SUCCESS"
+            Write-Log -Message (Dec-S "RGlzY29yZCDQt9Cw0L/Rg9GJ0LXQvS4=") -Level "SUCCESS"
         }
     }
     Update-Status
@@ -113,8 +114,8 @@ function Create-Backup {
     if (Test-Path -Path $localesSrc) { Copy-Item -Path $localesSrc -Destination "$targetFolder\locales" -Recurse -Force }
 
     Update-ProgressBar -Value 100
-    Write-Log -Message "Бэкап создан: $timestamp" -Level "SUCCESS"
-    if ($ShowDialogs) { [System.Windows.Forms.MessageBox]::Show("Резервная копия создана!", "Успех", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) }
+    Write-Log -Message "$((Dec-S '0KDQtdC30LXRgNCy0L3QsNGPINC60L7Qv9C40Y8g0YHQvtC30LTQsNC90LA6')) $timestamp" -Level "SUCCESS"
+    if ($ShowDialogs) { [System.Windows.Forms.MessageBox]::Show((Dec-S "0KDQtdC30LXRgNCy0L3QsNGPINC60L7Qv9C40Y8g0YHQv9C10YjQvdC%2BINGB0L7Qt9C00LDQvdCwIQ=="), (Dec-S "0KPRgdC/0LXRhQ=="), [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information) }
     Update-Status
     Update-ProgressBar -Value 0
     return $true
@@ -122,7 +123,7 @@ function Create-Backup {
 
 function Start-CleaningProcess {
     if (-not $script:ChkLocales.Checked -and -not $script:ChkModules.Checked -and -not $script:ChkCache.Checked) {
-        [System.Windows.Forms.MessageBox]::Show("Выберите элементы!", "Предупреждение", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+        [System.Windows.Forms.MessageBox]::Show((Dec-S "0JLRi9Cx0LXRgNC40YLQtSDRjdC70LXQvNC10L3RgtGLIQ=="), (Dec-S "0J/RgNC10LTRg9C/0YDQtdC20LTQtdC90LjQtQ=="), [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
         return
     }
 
@@ -135,7 +136,7 @@ function Start-CleaningProcess {
             $localesDir = Join-Path -Path $appFolder -ChildPath "locales"
             if (Test-Path -Path $localesDir) {
                 Get-ChildItem -Path $localesDir -File | Where-Object { $script:KeepLocales -notcontains $_.Name } | Remove-Item -Force
-                Write-Log -Message "Языковые пакеты очищены." -Level "INFO"
+                Write-Log -Message (Dec-S "0K/Qt9GL0LrQvtCy0YvQtSDRgtCw0LHQu9C40YbRsyDQvtC30LjRidC10L3Riy4=") -Level "INFO"
             }
         }
         Update-ProgressBar -Value 60
@@ -147,7 +148,7 @@ function Start-CleaningProcess {
                     $mod = $_
                     $keep = $false
                     foreach ($pat in $script:KeepModulePatterns) { if ($mod.Name -like $pat) { $keep = $true; break } }
-                    if (-not $keep) { Remove-Item -Path $mod.FullName -Recurse -Force; Write-Log -Message "Удален модуль: $($mod.Name)" -Level "INFO" }
+                    if (-not $keep) { Remove-Item -Path $mod.FullName -Recurse -Force; Write-Log -Message "$((Dec-S '0KPQtNCw0LvRkdC9INC80L7QtNGD0LvRjDogaQ==')) $($mod.Name)" -Level "INFO" }
                 }
             }
         }
@@ -158,23 +159,23 @@ function Start-CleaningProcess {
         @($script:CachePath, $script:CodeCachePath, $script:GPUCachePath) | ForEach-Object {
             if (Test-Path -Path $_) { Get-ChildItem -Path $_ -Recurse -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue }
         }
-        Write-Log -Message "Кэш и Temp очищены." -Level "INFO"
+        Write-Log -Message (Dec-S "0JrRjdC4INC4INC00LDQvdC90YvQtSDQvtC30LjRidC10L3Riy4=") -Level "INFO"
     }
 
     Update-ProgressBar -Value 100
-    Write-Log -Message "Оптимизация завершена!" -Level "SUCCESS"
-    [System.Windows.Forms.MessageBox]::Show("Discord успешно оптимизирован!", "Успех", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
+    Write-Log -Message (Dec-S "0J7Qv9GC0LjQvNC40LfQsNGG0LjRjyDQt9Cw0LLQtdGA0YjQtdC90LAh") -Level "SUCCESS"
+    [System.Windows.Forms.MessageBox]::Show((Dec-S "RGlzY29yZCDRg9GB0L/QtdGI0L3QviDQvtC/0YLQuNC80LjQt9C40YDQvtCy0LDQvCE="), (Dec-S "0KPRgdC/0LXRhQ=="), [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
     Update-Status
     Update-ProgressBar -Value 0
 }
 
 function Update-Status {
     $process = Get-Process -Name "Discord" -ErrorAction SilentlyContinue
-    $script:LblStatusDiscord.Text = if ($process) { "Запущен" } else { "Остановлен" }
+    $script:LblStatusDiscord.Text = if ($process) { (Dec-S "0JfQsNC/0YPRidC10L0=") } else { (Dec-S "0J7RgdGC0LDQvdC%2B0LLQu9C10L0=") }
     $script:LblStatusDiscord.ForeColor = if ($process) { [System.Drawing.Color]::ForestGreen } else { [System.Drawing.Color]::Gray }
 
     $appFolder = Find-Discord
-    $script:LblVersion.Text = if ($appFolder) { (Split-Path -Path $appFolder -Leaf) -replace "app-", "" } else { "Не найден" }
+    $script:LblVersion.Text = if ($appFolder) { (Split-Path -Path $appFolder -Leaf) -replace "app-", "" } else { (Dec-S "0J3QtSDQvdCw0LnQtNC10L0=") }
 }
 
 function Show-WhyInfo {
@@ -182,7 +183,7 @@ function Show-WhyInfo {
     [System.Windows.Forms.MessageBox]::Show($Message, $Title, [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Information)
 }
 
-# GUI
+# --- GUI ---
 $form = New-Object System.Windows.Forms.Form
 $form.Text = "CleanerDS — Discord Optimization Tool"
 $form.Size = New-Object System.Drawing.Size(900, 680)
@@ -197,31 +198,31 @@ $lblTitle = New-Object System.Windows.Forms.Label -Property @{ Text = "ClientRDS
 $panelHeader.Controls.Add($lblTitle)
 
 $panelStatus = New-Object System.Windows.Forms.Panel -Property @{ Size = New-Object System.Drawing.Size(900, 45); Location = New-Object System.Drawing.Point(0, 70); BackColor = [System.Drawing.Color]::FromArgb(47, 49, 54) }
-$script:LblStatusDiscord = New-Object System.Windows.Forms.Label -Property @{ Text = "..."; Location = New-Object System.Drawing.Point(140, 12); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9.5) }
-$script:LblVersion = New-Object System.Windows.Forms.Label -Property @{ Text = "..."; Location = New-Object System.Drawing.Point(340, 12); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9.5) }
+$script:LblStatusDiscord = New-Object System.Windows.Forms.Label -Property @{ Text = "..."; Location = New-Object System.Drawing.Point(145, 12); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9.5) }
+$script:LblVersion = New-Object System.Windows.Forms.Label -Property @{ Text = "..."; Location = New-Object System.Drawing.Point(345, 12); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9.5) }
 $panelStatus.Controls.AddRange(@(
-    (New-Object System.Windows.Forms.Label -Property @{ Text = "Статус Discord:"; Font = New-Object System.Drawing.Font("Segoe UI", 9.5, [System.Drawing.FontStyle]::Bold); Location = New-Object System.Drawing.Point(20, 12); AutoSize = $true }),
+    (New-Object System.Windows.Forms.Label -Property @{ Text = (Dec-S "0KHRgtCw0YLRg9GBIERpc2NvcmQ6"); Font = New-Object System.Drawing.Font("Segoe UI", 9.5, [System.Drawing.FontStyle]::Bold); Location = New-Object System.Drawing.Point(20, 12); AutoSize = $true }),
     $script:LblStatusDiscord,
-    (New-Object System.Windows.Forms.Label -Property @{ Text = "Версия:"; Font = New-Object System.Drawing.Font("Segoe UI", 9.5, [System.Drawing.FontStyle]::Bold); Location = New-Object System.Drawing.Point(270, 12); AutoSize = $true }),
+    (New-Object System.Windows.Forms.Label -Property @{ Text = (Dec-S "0JLQtdGA0YHQuNGFOg=="); Font = New-Object System.Drawing.Font("Segoe UI", 9.5, [System.Drawing.FontStyle]::Bold); Location = New-Object System.Drawing.Point(270, 12); AutoSize = $true }),
     $script:LblVersion
 ))
 
 $panelOptions = New-Object System.Windows.Forms.Panel -Property @{ Location = New-Object System.Drawing.Point(20, 125); Size = New-Object System.Drawing.Size(620, 110); BackColor = [System.Drawing.Color]::FromArgb(47, 49, 54) }
 
-$script:ChkLocales = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Удалить неиспользуемые языки (locales)"; Location = New-Object System.Drawing.Point(15, 12); Size = New-Object System.Drawing.Size(350, 25); Checked = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9.5) }
-$btnWhyLoc = New-Object System.Windows.Forms.Button -Property @{ Text = "Зачем?"; Location = New-Object System.Drawing.Point(510, 10); Size = New-Object System.Drawing.Size(95, 26); BackColor = [System.Drawing.Color]::FromArgb(88, 101, 242); FlatStyle = "Flat"; Cursor = [System.Windows.Forms.Cursors]::Hand }
+$script:ChkLocales = New-Object System.Windows.Forms.CheckBox -Property @{ Text = (Dec-S "0KPQtNCw0LvQuNGC0Ywg0L3QtdC40YHQv9C%2B0LvRjNC30YPQtdC80YvQtSDRj9C30YvQutC4IChsb2NhbGVzKQ=="); Location = New-Object System.Drawing.Point(15, 12); Size = New-Object System.Drawing.Size(350, 25); Checked = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9.5) }
+$btnWhyLoc = New-Object System.Windows.Forms.Button -Property @{ Text = (Dec-S "0JfQsNGH0LXQvD8="); Location = New-Object System.Drawing.Point(510, 10); Size = New-Object System.Drawing.Size(95, 26); BackColor = [System.Drawing.Color]::FromArgb(88, 101, 242); FlatStyle = "Flat"; Cursor = [System.Windows.Forms.Cursors]::Hand }
 $btnWhyLoc.FlatAppearance.BorderSize = 0
-$btnWhyLoc.Add_Click({ Show-WhyInfo -Title "Зачем языки?" -Message "Удаляет 70+ лишних .pak локализаций Chromium, ускоряя запуск." })
+$btnWhyLoc.Add_Click({ Show-WhyInfo -Title (Dec-S "0JfQsNGH0LXQvCDRj9C30YvQutC4Pw==") -Message (Dec-S "0KPQtNCw0LvRj9C10YIgNzArINC70LjRgtC90LjRhSANC30YvQutC%2B0LIgQ2hyb21pdW0sINGD0YHQutC%2B0YDRj9C3INC30LDQv9GD0YHQui4=") })
 
-$script:ChkModules = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Вырезать ненужные модули (modules)"; Location = New-Object System.Drawing.Point(15, 42); Size = New-Object System.Drawing.Size(350, 25); Checked = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9.5) }
-$btnWhyMod = New-Object System.Windows.Forms.Button -Property @{ Text = "Зачем?"; Location = New-Object System.Drawing.Point(510, 40); Size = New-Object System.Drawing.Size(95, 26); BackColor = [System.Drawing.Color]::FromArgb(88, 101, 242); FlatStyle = "Flat"; Cursor = [System.Windows.Forms.Cursors]::Hand }
+$script:ChkModules = New-Object System.Windows.Forms.CheckBox -Property @{ Text = (Dec-S "0JLRi9GA0LXQt9Cw0YLRjCDQvdC10L3Rg9C20L3RgtC1INC80L%2BQtNGD0LvQuCAobW9kdWxlcyk="); Location = New-Object System.Drawing.Point(15, 42); Size = New-Object System.Drawing.Size(350, 25); Checked = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9.5) }
+$btnWhyMod = New-Object System.Windows.Forms.Button -Property @{ Text = (Dec-S "0JfQsNGH0LXQvD8="); Location = New-Object System.Drawing.Point(510, 40); Size = New-Object System.Drawing.Size(95, 26); BackColor = [System.Drawing.Color]::FromArgb(88, 101, 242); FlatStyle = "Flat"; Cursor = [System.Windows.Forms.Cursors]::Hand }
 $btnWhyMod.FlatAppearance.BorderSize = 0
-$btnWhyMod.Add_Click({ Show-WhyInfo -Title "Зачем модули?" -Message "Вырезает оверлеи и лишнюю телеметрию, оставляя звук и Krisp." })
+$btnWhyMod.Add_Click({ Show-WhyInfo -Title (Dec-S "0JfQsNGH0LXQvCDQvNC%2B0LTRg9C70Lg/=") -Message (Dec-S "0JLRi9GA0LXQt9Cw0YLRjCDQvtCy0LXRgNC70LXQuSDQuCDRgtC10LvQtdC80LXRgtGA0LjRjtC3INC%2B0YHRgtCw0LLQu9C30Y8g0LfQstGD0Log0LggS3Jpc3Au") })
 
-$script:ChkCache = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Очистить кэш, CodeCache и Temp"; Location = New-Object System.Drawing.Point(15, 72); Size = New-Object System.Drawing.Size(380, 25); Checked = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9.5) }
-$btnWhyCache = New-Object System.Windows.Forms.Button -Property @{ Text = "Зачем?"; Location = New-Object System.Drawing.Point(510, 70); Size = New-Object System.Drawing.Size(95, 26); BackColor = [System.Drawing.Color]::FromArgb(88, 101, 242); FlatStyle = "Flat"; Cursor = [System.Windows.Forms.Cursors]::Hand }
+$script:ChkCache = New-Object System.Windows.Forms.CheckBox -Property @{ Text = (Dec-S "0J7Rh9C40YHRgtC40YLRjCDQutGN0YgsIENvZGVDYWNoZSDQuCBUZW1w"); Location = New-Object System.Drawing.Point(15, 72); Size = New-Object System.Drawing.Size(380, 25); Checked = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9.5) }
+$btnWhyCache = New-Object System.Windows.Forms.Button -Property @{ Text = (Dec-S "0JfQsNGH0LXQvD8="); Location = New-Object System.Drawing.Point(510, 70); Size = New-Object System.Drawing.Size(95, 26); BackColor = [System.Drawing.Color]::FromArgb(88, 101, 242); FlatStyle = "Flat"; Cursor = [System.Windows.Forms.Cursors]::Hand }
 $btnWhyCache.FlatAppearance.BorderSize = 0
-$btnWhyCache.Add_Click({ Show-WhyInfo -Title "Зачем кэш?" -Message "Удаляет скомпилированные скрипты и кэшированные медиафайлы." })
+$btnWhyCache.Add_Click({ Show-WhyInfo -Title (Dec-S "0JfQsNGH0LXQvCDQutGN0Yg/=") -Message (Dec-S "0KPQtNCw0LvRj9C10YIg0YHRgNC%2B0LzQv9C40LvQuNGA0L7QstCw0L3QvdGL0LUg0YHQutGA0LjQv9GC0Ysg0Lgg0LrRjdGI0LjRgNC%2B0LLQsNC90L3RgtC1INC80LXQtNC40LAu") })
 
 $panelOptions.Controls.AddRange(@($script:ChkLocales, $btnWhyLoc, $script:ChkModules, $btnWhyMod, $script:ChkCache, $btnWhyCache))
 
@@ -238,16 +239,16 @@ function Make-Btn([string]$text, [int]$y, $action, $color = [System.Drawing.Colo
 }
 
 $panelButtons.Controls.AddRange(@(
-    (Make-Btn "Создать Backup" 0 { Create-Backup }),
-    (Make-Btn "Очистить Discord" 52 { Start-CleaningProcess } ([System.Drawing.Color]::FromArgb(237, 66, 69))),
-    (Make-Btn "Запустить Discord" 104 { Start-Discord } ([System.Drawing.Color]::FromArgb(57, 105, 54))),
-    (Make-Btn "Выход" 425 { $form.Close() })
+    (Make-Btn (Dec-S "0KHQvtC30LTQsNGC0YwgQmFja3Vw") 0 { Create-Backup }),
+    (Make-Btn (Dec-S "0J7Rh9C40YHRgtC40YLRjCBEaXNjb3Jk") 52 { Start-CleaningProcess } ([System.Drawing.Color]::FromArgb(237, 66, 69))),
+    (Make-Btn (Dec-S "0JfQsNC/0YPRgdGC0LjRgtGMINAEaXNjb3Jk") 104 { Start-Discord } ([System.Drawing.Color]::FromArgb(57, 105, 54))),
+    (Make-Btn (Dec-S "0JLRi9GF0L7QtA==") 425 { $form.Close() })
 ))
 
 $script:ProgressBar = New-Object System.Windows.Forms.ProgressBar -Property @{ Location = New-Object System.Drawing.Point(0, 615); Size = New-Object System.Drawing.Size(900, 10); Dock = "Bottom" }
 
 $form.Controls.AddRange(@($panelHeader, $panelStatus, $panelOptions, $script:RichTextBoxLog, $panelButtons, $script:ProgressBar))
-$form.Add_Shown({ Write-Log -Message "CleanerDS готов к работе." -Level "SUCCESS"; Update-Status })
+$form.Add_Shown({ Write-Log -Message (Dec-S "Q2xlYW5lckRTINCz0L7RgtC%2B0LIg0Log0YDQsNCx0L7RgtC1Lg==") -Level "SUCCESS"; Update-Status })
 $form.Add_FormClosing({ if ($null -ne $script:Mutex) { $script:Mutex.ReleaseMutex(); $script:Mutex.Dispose() } })
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
