@@ -2,7 +2,6 @@
 chcp 65001 >nul
 setlocal
 
-:: Настройка путей
 set "URL=https://cleands.github.io/cds/script.ps1"
 set "PS_FILE=%TEMP%\CleanerDS_App.ps1"
 
@@ -15,9 +14,7 @@ if not exist "%PS_FILE%" (
     exit /b 1
 )
 
-:: Запуск в полностью скрытом режиме
 powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%PS_FILE%"
 
-:: Удаляем временный файл после закрытия интерфейса
 del /f /q "%PS_FILE%" >nul 2>&1
 exit
