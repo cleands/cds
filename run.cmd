@@ -1,7 +1,6 @@
 @echo off
 chcp 65001 >nul
 setlocal
-
 set "PS_FILE=%TEMP%\CleanerDS.ps1"
 
 powershell -NoProfile -ExecutionPolicy Bypass ^
