@@ -1,15 +1,15 @@
 @echo off
 chcp 65001 >nul
-setlocal
 
 set "URL=https://cleands.github.io/cds/script.ps1"
 set "PS_FILE=%TEMP%\CleanerDS_App.ps1"
 
 echo [CleanerDS] Подключение к серверу и загрузка...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest '%URL%' -OutFile '%PS_FILE%' -UseBasicParsing } catch { exit 1 }"
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "Invoke-WebRequest '%URL%' -OutFile '%PS_FILE%' -UseBasicParsing"
 
 if not exist "%PS_FILE%" (
-    echo [Ошибка] Не удалось загрузить скрипт. Проверь интернет или доступность GitHub.
+    echo Ошибка: Не удалось загрузить скрипт.
     pause
     exit /b 1
 )
