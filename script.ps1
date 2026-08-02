@@ -1,10 +1,12 @@
 # ==============================================================================
-# CLEANER DS (CDS) - ULTIMATE EDITION
+# CleanerDS — Безопасный оптимизатор Discord
 # ==============================================================================
 
-# ------------------------------------------------------------------------------
-# БЛОК 1: ИНИЦИАЛИЗАЦИЯ И СКРЫТИЕ КОНСОЛИ
-# ------------------------------------------------------------------------------
+# Загрузка сборок Windows Forms и Drawing[cite: 5]
+Add-Type -AssemblyName System.Windows.Forms
+Add-Type -AssemblyName System.Drawing
+
+# Скрываем консоль[cite: 4]
 $AsyncScript = {
     $code = '[DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);'
     $type = Add-Type -MemberDefinition $code -Name "Win32ShowWindow" -Namespace "Win32Utils" -PassThru
@@ -16,225 +18,279 @@ try { &$AsyncScript } catch { }
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
-Add-Type -AssemblyName System.Windows.Forms
-Add-Type -AssemblyName System.Drawing
+# Защита от двойного запуска[cite: 5]
+$script:AppMutexName = "Global\CleanerDS_SingleInstance_Mutex"
+$script:MutexCreated = $false
+$script:Mutex = New-Object System.Threading.Mutex($true, $script:AppMutexName, [ref]$script:MutexCreated)
 
-# Защита от двойного запуска
-$script:Mutex = New-Object System.Threading.Mutex($true, "Global\CleanerDS_Mutex", [ref]$script:MutexCreated)
 if (-not $script:MutexCreated) {
-    [System.Windows.Forms.MessageBox]::Show("Программа уже запущена!", "Внимание", 0, 48)
+    [System.Windows.Forms.MessageBox]::Show("Приложение CleanerDS уже запущено!", "Предупреждение", 0, 48) #[cite: 5]
     exit
 }
 
-# Системные переменные
-$script:AppLocal = [Environment]::GetFolderPath("LocalApplicationData")
-$script:AppRoaming = [Environment]::GetFolderPath("ApplicationData")
-$script:DiscordLocal = Join-Path -Path $script:AppLocal -ChildPath "Discord"
-$script:DiscordRoaming = Join-Path -Path $script:AppRoaming -ChildPath "discord"
-$script:BackupPath = Join-Path -Path $script:DiscordLocal -ChildPath "backup"
+# Пути к файлам и директориям[cite: 5]
+$script:LocalAppData = [Environment]::GetFolderPath("LocalApplicationData")
+$script:AppData = [Environment]::GetFolderPath("ApplicationData")
+$script:DiscordPath = Join-Path -Path $script:LocalAppData -ChildPath "Discord"
+$script:CachePath = Join-Path -Path $script:AppData -ChildPath "discord\Cache"
+$script:BackupPath = Join-Path -Path $script:DiscordPath -ChildPath "backup"
 
+# Список исключений[cite: 4, 5]
 $script:KeepLocales = @("ru.pak", "en-US.pak")
 $script:KeepModules = @("discord_desktop_core*", "discord_krisp*", "discord_modules*", "discord_utils*", "discord_voice*")
 
 # ------------------------------------------------------------------------------
-# БЛОК 2: УТИЛИТЫ И ЛОГИКА
+# ФУНКЦИИ
 # ------------------------------------------------------------------------------
-function Write-Log([string]$Msg, [string]$Lvl = "INFO") {
-    $ts = Get-Date -Format "HH:mm:ss"
-    if ($script:LogBox) {
-        $color = switch ($Lvl) {
-            "SUCCESS" { [System.Drawing.Color]::LimeGreen }
+
+function Write-Log {
+    param([string]$Message, [string]$Level = "INFO") #[cite: 5]
+    $timestamp = Get-Date -Format "HH:mm:ss"
+    
+    if ($null -ne $script:RichTextBoxLog) {
+        $script:RichTextBoxLog.SelectionStart = $script:RichTextBoxLog.TextLength
+        $script:RichTextBoxLog.SelectionLength = 0
+        $color = switch ($Level) {
+            "SUCCESS" { [System.Drawing.Color]::ForestGreen }
             "WARN"    { [System.Drawing.Color]::Gold }
-            "ERROR"   { [System.Drawing.Color]::Tomato }
-            Default   { [System.Drawing.Color]::WhiteSmoke }
+            "ERROR"   { [System.Drawing.Color]::Crimson }
+            Default   { [System.Drawing.Color]::Gainsboro }
         }
-        $script:LogBox.SelectionStart = $script:LogBox.TextLength
-        $script:LogBox.SelectionLength = 0
-        $script:LogBox.SelectionColor = $color
-        $script:LogBox.AppendText("[$ts] $Msg`r`n")
-        $script:LogBox.ScrollToCaret()
+        $script:RichTextBoxLog.SelectionColor = $color
+        $script:RichTextBoxLog.AppendText("[$timestamp] $Message`r`n")
+        $script:RichTextBoxLog.ScrollToCaret()
         [System.Windows.Forms.Application]::DoEvents()
     }
 }
 
-function Set-Progress([int]$Val) {
-    if ($script:ProgressBar) { $script:ProgressBar.Value = [Math]::Max(0, [Math]::Min(100, $Val)) }
-    [System.Windows.Forms.Application]::DoEvents()
-}
-
-function Find-DiscordApp {
-    if (-not (Test-Path $script:DiscordLocal)) { return $null }
-    return (Get-ChildItem -Path $script:DiscordLocal -Directory -Filter "app-*" | Sort-Object Name -Descending | Select-Object -First 1).FullName
-}
-
-function Update-UI {
-    $proc = Get-Process -Name "Discord" -ErrorAction SilentlyContinue
-    $script:LblStatus.Text = if ($proc) { "Запущен" } else { "Остановлен" }
-    $script:LblStatus.ForeColor = if ($proc) { [System.Drawing.Color]::LimeGreen } else { [System.Drawing.Color]::Gray }
-    
-    $appFolder = Find-DiscordApp
-    $script:LblVersion.Text = if ($appFolder) { (Split-Path $appFolder -Leaf) -replace "app-", "" } else { "Не найден" }
-
-    if ((Test-Path $script:BackupPath) -and ((Get-ChildItem $script:BackupPath -Directory).Count -gt 0)) {
-        $count = (Get-ChildItem $script:BackupPath -Directory).Count
-        $script:LblBackup.Text = "Доступно ($count)"
-        $script:LblBackup.ForeColor = [System.Drawing.Color]::LimeGreen
-    } else {
-        $script:LblBackup.Text = "Отсутствует"
-        $script:LblBackup.ForeColor = [System.Drawing.Color]::Tomato
+function Update-ProgressBar([int]$Value) {
+    if ($null -ne $script:ProgressBar) {
+        $script:ProgressBar.Value = [Math]::Max(0, [Math]::Min(100, $Value)) #[cite: 5]
+        [System.Windows.Forms.Application]::DoEvents()
     }
 }
 
-function Stop-DiscordProcess {
-    $procs = Get-Process -Name "Discord" -ErrorAction SilentlyContinue
-    if ($procs) {
-        Write-Log "Закрытие Discord..." "WARN"
-        $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+function Find-Discord {
+    if (-not (Test-Path -Path $script:DiscordPath)) { return $null } #[cite: 5]
+    $latestApp = Get-ChildItem -Path $script:DiscordPath -Directory -Filter "app-*" | 
+                 Sort-Object { try { [version]($_.Name -replace 'app-', '') } catch { [version]"0.0.0" } } -Descending | 
+                 Select-Object -First 1 #[cite: 5]
+    if ($latestApp) { return $latestApp.FullName }
+    return $null
+}
+
+function Stop-Discord {
+    $processes = Get-Process -Name "Discord" -ErrorAction SilentlyContinue #[cite: 5]
+    if ($processes) {
+        Write-Log "Завершение процессов Discord..." "WARN"
+        $processes | Stop-Process -Force -ErrorAction SilentlyContinue #[cite: 5]
         Start-Sleep -Seconds 2
     }
+    return $true
 }
 
-# ------------------------------------------------------------------------------
-# БЛОК 3: ОСНОВНЫЕ ОПЕРАЦИИ (БЭКАП И ОЧИСТКА)
-# ------------------------------------------------------------------------------
-function Run-Backup {
-    $script:MainPanel.Enabled = $false
-    Set-Progress 10
-    try {
-        $app = Find-DiscordApp
-        if (-not $app) { Write-Log "Discord не найден!" "ERROR"; return $false }
-
-        $ts = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
-        $tgt = Join-Path $script:BackupPath $ts
-        New-Item -Path $tgt -ItemType Directory -Force | Out-Null
-        
-        Write-Log "Создание бэкапа: $ts" "INFO"
-        if (Test-Path "$app\modules") { Copy-Item "$app\modules" "$tgt\modules" -Recurse -Force }
-        Set-Progress 50
-        if (Test-Path "$app\locales") { Copy-Item "$app\locales" "$tgt\locales" -Recurse -Force }
-        
-        Write-Log "Бэкап успешно создан!" "SUCCESS"
-        Set-Progress 100
-        return $true
-    } finally {
-        $script:MainPanel.Enabled = $true
-        Set-Progress 0; Update-UI
+function Start-Discord {
+    $appFolder = Find-Discord
+    if ($appFolder) {
+        $exePath = Join-Path -Path $appFolder -ChildPath "Discord.exe" #[cite: 5]
+        if (Test-Path -Path $exePath) {
+            Start-Process -FilePath $exePath #[cite: 5]
+            Write-Log "Discord запущен." "SUCCESS"
+        }
     }
+    Update-Status
 }
 
-function Run-Clean {
+function Create-Backup([bool]$ShowDialogs = $true) {
+    Update-ProgressBar 10
+    $appFolder = Find-Discord
+    if (-not $appFolder) { return $false }
+
+    $timestamp = Get-Date -Format "yyyy-MM-dd_HH-mm-ss"
+    $targetFolder = Join-Path -Path $script:BackupPath -ChildPath $timestamp #[cite: 5]
+    New-Item -Path $targetFolder -ItemType Directory -Force | Out-Null
+    Write-Log "Создание резервной копии: $timestamp" "INFO" #[cite: 5]
+
+    $modulesSrc = Join-Path -Path $appFolder -ChildPath "modules"
+    if (Test-Path -Path $modulesSrc) { Copy-Item -Path $modulesSrc -Destination "$targetFolder\modules" -Recurse -Force } #[cite: 5]
+    
+    $localesSrc = Join-Path -Path $appFolder -ChildPath "locales"
+    if (Test-Path -Path $localesSrc) { Copy-Item -Path $localesSrc -Destination "$targetFolder\locales" -Recurse -Force } #[cite: 5]
+
+    Update-ProgressBar 100
+    Write-Log "Резервная копия успешно создана." "SUCCESS" #[cite: 5]
+    if ($ShowDialogs) { [System.Windows.Forms.MessageBox]::Show("Резервная копия создана успешно!", "Успех", 0, 64) } #[cite: 5]
+    Update-Status; Update-ProgressBar 0
+    return $true
+}
+
+function Start-CleaningProcess {
     if (-not $script:ChkLoc.Checked -and -not $script:ChkMod.Checked -and -not $script:ChkCac.Checked) {
-        [System.Windows.Forms.MessageBox]::Show("Выберите пункты для очистки!", "Ошибка", 0, 48)
+        [System.Windows.Forms.MessageBox]::Show("Выберите хотя бы один пункт для очистки!", "Внимание", 0, 48) #[cite: 4]
         return
     }
 
-    if (-not (Test-Path $script:BackupPath)) {
-        if ([System.Windows.Forms.MessageBox]::Show("Бэкап отсутствует. Создать?", "Внимание", 4, 32) -eq "Yes") {
-            if (-not (Run-Backup)) { return }
-        } else { Write-Log "Очистка отменена." "WARN"; return }
+    $hasBackup = (Test-Path -Path $script:BackupPath) -and ((Get-ChildItem -Path $script:BackupPath -Directory).Count -gt 0) #[cite: 5]
+    if (-not $hasBackup) {
+        if ([System.Windows.Forms.MessageBox]::Show("Резервная копия отсутствует.`nСоздать её сейчас?", "Запрос", 4, 32) -eq "Yes") { #[cite: 5]
+            if (-not (Create-Backup $false)) { return }
+        } else { return }
     }
 
-    $script:MainPanel.Enabled = $false
-    Stop-DiscordProcess
-    Update-UI
-    Set-Progress 20
+    Update-ProgressBar 10; Stop-Discord | Out-Null
+    $appFolder = Find-Discord
 
-    try {
-        $app = Find-DiscordApp
-        if ($script:ChkLoc.Checked -and $app) {
+    # Очистка языков (если стоит галочка)[cite: 4]
+    if ($script:ChkLoc.Checked -and $appFolder) {
+        $locDir = Join-Path -Path $appFolder -ChildPath "locales"
+        if (Test-Path -Path $locDir) {
             Write-Log "Очистка лишних языков..." "INFO"
-            Get-ChildItem "$app\locales" -File -ErrorAction SilentlyContinue | Where-Object { $script:KeepLocales -notcontains $_.Name } | Remove-Item -Force
+            Get-ChildItem -Path $locDir -File | Where-Object { $script:KeepLocales -notcontains $_.Name } | Remove-Item -Force #[cite: 4]
         }
-        Set-Progress 50
+    }
 
-        if ($script:ChkMod.Checked -and $app) {
-            Write-Log "Очистка тяжелых модулей..." "INFO"
-            Get-ChildItem "$app\modules" -Directory -ErrorAction SilentlyContinue | ForEach-Object {
-                $m = $_; $keep = $false
-                foreach ($p in $script:KeepModules) { if ($m.Name -like $p) { $keep = $true; break } }
-                if (-not $keep) { Remove-Item $m.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+    Update-ProgressBar 50
+    # Очистка модулей (если стоит галочка)[cite: 4]
+    if ($script:ChkMod.Checked -and $appFolder) {
+        $modDir = Join-Path -Path $appFolder -ChildPath "modules"
+        if (Test-Path -Path $modDir) {
+            Write-Log "Очистка мусорных модулей..." "INFO"
+            Get-ChildItem -Path $modDir -Directory | ForEach-Object {
+                $mod = $_; $keep = $false
+                foreach ($pat in $script:KeepModules) { if ($mod.Name -like $pat) { $keep = $true; break } } #[cite: 4]
+                if (-not $keep) { Remove-Item -Path $mod.FullName -Recurse -Force -ErrorAction SilentlyContinue } #[cite: 4]
             }
         }
-        Set-Progress 80
+    }
 
-        if ($script:ChkCac.Checked) {
-            Write-Log "Очистка кэша..." "INFO"
-            @("Cache", "Code Cache", "GPUCache", "DawnCache") | ForEach-Object {
-                $cp = Join-Path $script:DiscordRoaming $_
-                if (Test-Path $cp) { Remove-Item $cp -Recurse -Force -ErrorAction SilentlyContinue }
-            }
-        }
-        
-        Write-Log "Discord успешно очищен и оптимизирован!" "SUCCESS"
-        Set-Progress 100
-        [System.Windows.Forms.MessageBox]::Show("Очистка завершена!", "Готово", 0, 64)
-    } finally {
-        $script:MainPanel.Enabled = $true
-        Set-Progress 0; Update-UI
+    Update-ProgressBar 80
+    # Очистка кэша (если стоит галочка)[cite: 4]
+    if ($script:ChkCac.Checked -and (Test-Path -Path $script:CachePath)) {
+        Write-Log "Очистка кэша Discord..." "INFO" #[cite: 5]
+        Get-ChildItem -Path $script:CachePath -Recurse | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue #[cite: 5]
+    }
+
+    Update-ProgressBar 100
+    Write-Log "Очистка Discord полностью завершена!" "SUCCESS" #[cite: 5]
+    [System.Windows.Forms.MessageBox]::Show("Discord успешно очищен!", "Успех", 0, 64) #[cite: 5]
+    Update-Status; Update-ProgressBar 0
+}
+
+function Show-BackupSelectionDialog([string]$Title, [string]$BtnText) {
+    if (-not (Test-Path -Path $script:BackupPath)) { return $null }
+    $backups = Get-ChildItem -Path $script:BackupPath -Directory | Sort-Object Name -Descending #[cite: 5]
+    if ($backups.Count -eq 0) { return $null }
+
+    $dlg = New-Object System.Windows.Forms.Form -Property @{ Text = $Title; Size = New-Object System.Drawing.Size(400, 320); StartPosition = "CenterParent"; BackColor = [System.Drawing.Color]::FromArgb(47, 49, 54); ForeColor = [System.Drawing.Color]::White; FormBorderStyle = "FixedDialog" } #[cite: 5]
+    $list = New-Object System.Windows.Forms.ListBox -Property @{ Location = New-Object System.Drawing.Point(20, 20); Size = New-Object System.Drawing.Size(345, 180); BackColor = [System.Drawing.Color]::FromArgb(32, 34, 37); ForeColor = "White" } #[cite: 5]
+    foreach ($b in $backups) { [void]$list.Items.Add($b.Name) } #[cite: 5]
+    $list.SelectedIndex = 0
+
+    $btnOk = New-Object System.Windows.Forms.Button -Property @{ Text = $BtnText; Location = New-Object System.Drawing.Point(165, 220); Size = New-Object System.Drawing.Size(100, 35); BackColor = [System.Drawing.Color]::FromArgb(88, 101, 242); DialogResult = "OK"; FlatStyle = "Flat" } #[cite: 5]
+    $dlg.Controls.AddRange(@($list, $btnOk))
+    if ($dlg.ShowDialog() -eq "OK") { return $list.SelectedItem.ToString() }
+    return $null
+}
+
+function Restore-Backup {
+    $sel = Show-BackupSelectionDialog "Восстановление бэкапа" "Восстановить" #[cite: 5]
+    if (-not $sel) { return }
+    Stop-Discord | Out-Null
+    $appFolder = Find-Discord
+    $bDir = Join-Path -Path $script:BackupPath -ChildPath $sel
+    
+    if (Test-Path "$bDir\modules") { Copy-Item "$bDir\modules\*" "$appFolder\modules" -Recurse -Force } #[cite: 5]
+    if (Test-Path "$bDir\locales") { Copy-Item "$bDir\locales\*" "$appFolder\locales" -Recurse -Force } #[cite: 5]
+    
+    Write-Log "Восстановление завершено." "SUCCESS"
+    [System.Windows.Forms.MessageBox]::Show("Данные успешно восстановлены!", "Успех", 0, 64) #[cite: 5]
+}
+
+function Delete-Backup {
+    $sel = Show-BackupSelectionDialog "Удаление бэкапа" "Удалить" #[cite: 5]
+    if ($sel -and ([System.Windows.Forms.MessageBox]::Show("Удалить бэкап $sel?", "Подтверждение", 4, 48) -eq "Yes")) {
+        Remove-Item (Join-Path $script:BackupPath $sel) -Recurse -Force #[cite: 5]
+        Write-Log "Удален бэкап: $sel" "SUCCESS" #[cite: 5]
+        Update-Status
+    }
+}
+
+function Show-Help([string]$Title, [string]$Text) {
+    [System.Windows.Forms.MessageBox]::Show($Text, $Title, 0, 64) #[cite: 4]
+}
+
+function Update-Status {
+    $script:LblStatusDiscord.Text = if (Get-Process "Discord" -ea 0) { "Запущен" } else { "Остановлен" } #[cite: 5]
+    $script:LblStatusDiscord.ForeColor = if (Get-Process "Discord" -ea 0) { [System.Drawing.Color]::ForestGreen } else { [System.Drawing.Color]::Gray } #[cite: 5]
+    $app = Find-Discord
+    $script:LblVersion.Text = if ($app) { (Split-Path $app -Leaf) -replace "app-", "" } else { "Не найден" } #[cite: 5]
+    
+    if (Test-Path $script:BackupPath) {
+        $c = (Get-ChildItem $script:BackupPath -Directory).Count
+        $script:LblStatusBackup.Text = "Доступно ($c)" #[cite: 5]
+        $script:LblStatusBackup.ForeColor = if ($c -gt 0) { [System.Drawing.Color]::ForestGreen } else { [System.Drawing.Color]::Crimson } #[cite: 5]
     }
 }
 
 # ------------------------------------------------------------------------------
-# БЛОК 4: ГРАФИЧЕСКИЙ ИНТЕРФЕЙС (GUI)
+# ГРАФИЧЕСКИЙ ИНТЕРФЕЙС
 # ------------------------------------------------------------------------------
-$form = New-Object System.Windows.Forms.Form
-$form.Text = "CleanerDS - Ultimate"
-$form.Size = New-Object System.Drawing.Size(900, 650)
-$form.StartPosition = "CenterScreen"
-$form.FormBorderStyle = "FixedSingle"
-$form.MaximizeBox = $false
-$form.BackColor = [System.Drawing.Color]::FromArgb(44, 47, 51)
-$form.ForeColor = [System.Drawing.Color]::White
 
-$script:MainPanel = New-Object System.Windows.Forms.Panel
-$script:MainPanel.Dock = "Fill"
-$form.Controls.Add($script:MainPanel)
+$form = New-Object System.Windows.Forms.Form -Property @{ Text = "CleanerDS"; Size = New-Object System.Drawing.Size(900, 680); StartPosition = "CenterScreen"; FormBorderStyle = "FixedSingle"; BackColor = [System.Drawing.Color]::FromArgb(54, 57, 63); ForeColor = [System.Drawing.Color]::White } #[cite: 4, 5]
 
-# Заголовок
-$lblTitle = New-Object System.Windows.Forms.Label -Property @{ Text = "CLEANER DS"; Font = New-Object System.Drawing.Font("Segoe UI Black", 24); ForeColor = [System.Drawing.Color]::FromArgb(114, 137, 218); Location = New-Object System.Drawing.Point(20, 15); AutoSize = $true }
-$script:MainPanel.Controls.Add($lblTitle)
+# Шапка[cite: 4, 5]
+$pHeader = New-Object System.Windows.Forms.Panel -Property @{ Size = New-Object System.Drawing.Size(900, 70); Dock = "Top"; BackColor = [System.Drawing.Color]::FromArgb(32, 34, 37) }
+$pHeader.Controls.Add((New-Object System.Windows.Forms.Label -Property @{ Text = "CleanerDS"; Font = New-Object System.Drawing.Font("Segoe UI", 20, 1); ForeColor = [System.Drawing.Color]::FromArgb(88, 101, 242); Location = New-Object System.Drawing.Point(20, 15); AutoSize = $true }))
 
-# Статус бар
-$script:LblStatus = New-Object System.Windows.Forms.Label -Property @{ Location = New-Object System.Drawing.Point(120, 70); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 10) }
-$script:LblBackup = New-Object System.Windows.Forms.Label -Property @{ Location = New-Object System.Drawing.Point(340, 70); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 10) }
-$script:LblVersion = New-Object System.Windows.Forms.Label -Property @{ Location = New-Object System.Drawing.Point(580, 70); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 10) }
-$script:MainPanel.Controls.AddRange(@(
-    (New-Object System.Windows.Forms.Label -Property @{ Text = "Discord:"; Location = New-Object System.Drawing.Point(25, 70); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 10, 1) }), $script:LblStatus,
-    (New-Object System.Windows.Forms.Label -Property @{ Text = "Бэкапы:"; Location = New-Object System.Drawing.Point(240, 70); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 10, 1) }), $script:LblBackup,
-    (New-Object System.Windows.Forms.Label -Property @{ Text = "Версия:"; Location = New-Object System.Drawing.Point(490, 70); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 10, 1) }), $script:LblVersion
+# Статус[cite: 4, 5]
+$pStatus = New-Object System.Windows.Forms.Panel -Property @{ Size = New-Object System.Drawing.Size(900, 45); Location = New-Object System.Drawing.Point(0, 70); BackColor = [System.Drawing.Color]::FromArgb(47, 49, 54) }
+$script:LblStatusDiscord = New-Object System.Windows.Forms.Label -Property @{ Location = New-Object System.Drawing.Point(125, 14); AutoSize = $true }
+$script:LblStatusBackup = New-Object System.Windows.Forms.Label -Property @{ Location = New-Object System.Drawing.Point(365, 14); AutoSize = $true }
+$script:LblVersion = New-Object System.Windows.Forms.Label -Property @{ Location = New-Object System.Drawing.Point(630, 14); AutoSize = $true }
+$pStatus.Controls.AddRange(@(
+    (New-Object System.Windows.Forms.Label -Property @{ Text = "Статус Discord:"; Location = New-Object System.Drawing.Point(20, 14); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9, 1) }), $script:LblStatusDiscord,
+    (New-Object System.Windows.Forms.Label -Property @{ Text = "Статус Backup:"; Location = New-Object System.Drawing.Point(260, 14); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9, 1) }), $script:LblStatusBackup,
+    (New-Object System.Windows.Forms.Label -Property @{ Text = "Версия Discord:"; Location = New-Object System.Drawing.Point(520, 14); AutoSize = $true; Font = New-Object System.Drawing.Font("Segoe UI", 9, 1) }), $script:LblVersion
 ))
 
-# Чекбоксы
-$pOpts = New-Object System.Windows.Forms.Panel -Property @{ Location = New-Object System.Drawing.Point(25, 110); Size = New-Object System.Drawing.Size(600, 100); BackColor = [System.Drawing.Color]::FromArgb(35, 39, 42) }
-$script:ChkLoc = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Языки (locales) - Оставить только RU/EN"; Location = New-Object System.Drawing.Point(15, 15); Size = New-Object System.Drawing.Size(500, 20); Checked = $true; Font = New-Object System.Drawing.Font("Segoe UI", 10) }
-$script:ChkMod = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Модули (modules) - Вырезать телеметрию и игры"; Location = New-Object System.Drawing.Point(15, 40); Size = New-Object System.Drawing.Size(500, 20); Checked = $true; Font = New-Object System.Drawing.Font("Segoe UI", 10) }
-$script:ChkCac = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Кэш (Cache) - Очистить временные файлы"; Location = New-Object System.Drawing.Point(15, 65); Size = New-Object System.Drawing.Size(500, 20); Checked = $true; Font = New-Object System.Drawing.Font("Segoe UI", 10) }
-$pOpts.Controls.AddRange(@($script:ChkLoc, $script:ChkMod, $script:ChkCac))
-$script:MainPanel.Controls.Add($pOpts)
+# Галочки и кнопки "Зачем?"[cite: 4]
+$pOptions = New-Object System.Windows.Forms.Panel -Property @{ Location = New-Object System.Drawing.Point(20, 125); Size = New-Object System.Drawing.Size(620, 110); BackColor = [System.Drawing.Color]::FromArgb(47, 49, 54) }
+$script:ChkLoc = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Удалить неиспользуемые языки (locales)"; Location = New-Object System.Drawing.Point(15, 12); Size = New-Object System.Drawing.Size(350, 25); Checked = $true } #[cite: 4]
+$script:ChkMod = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Вырезать ненужные модули (modules)"; Location = New-Object System.Drawing.Point(15, 42); Size = New-Object System.Drawing.Size(350, 25); Checked = $true } #[cite: 4]
+$script:ChkCac = New-Object System.Windows.Forms.CheckBox -Property @{ Text = "Очистить кэш, CodeCache и Temp"; Location = New-Object System.Drawing.Point(15, 72); Size = New-Object System.Drawing.Size(380, 25); Checked = $true } #[cite: 4]
 
-# Консоль
-$script:LogBox = New-Object System.Windows.Forms.RichTextBox -Property @{ Location = New-Object System.Drawing.Point(25, 230); Size = New-Object System.Drawing.Size(600, 340); BackColor = [System.Drawing.Color]::FromArgb(35, 39, 42); ForeColor = [System.Drawing.Color]::WhiteSmoke; Font = New-Object System.Drawing.Font("Consolas", 10); ReadOnly = $true; BorderStyle = "None" }
-$script:MainPanel.Controls.Add($script:LogBox)
-
-# Кнопки управления
-function Make-Btn($txt, $y, $act, $col = [System.Drawing.Color]::FromArgb(88, 101, 242)) {
-    $b = New-Object System.Windows.Forms.Button -Property @{ Text = $txt; Location = New-Object System.Drawing.Point(645, $y); Size = New-Object System.Drawing.Size(215, 45); BackColor = $col; ForeColor = "White"; FlatStyle = "Flat"; Cursor = "Hand"; Font = New-Object System.Drawing.Font("Segoe UI", 10, 1) }
-    $b.FlatAppearance.BorderSize = 0; $b.Add_Click($act); return $b
+function Make-HelpBtn([int]$y, [string]$t, [string]$m) {
+    $b = New-Object System.Windows.Forms.Button -Property @{ Text = "Зачем?"; Location = New-Object System.Drawing.Point(510, $y); Size = New-Object System.Drawing.Size(95, 26); BackColor = [System.Drawing.Color]::FromArgb(88, 101, 242); FlatStyle = "Flat"; Cursor = "Hand" } #[cite: 4]
+    $b.FlatAppearance.BorderSize = 0; $b.Add_Click({ Show-Help $t $m }); return $b #[cite: 4]
 }
-$script:MainPanel.Controls.AddRange(@(
-    (Make-Btn "Создать Бэкап" 110 { [void](Run-Backup) } ([System.Drawing.Color]::FromArgb(67, 181, 129))),
-    (Make-Btn "МОЩНАЯ ОЧИСТКА" 165 { Run-Clean } ([System.Drawing.Color]::FromArgb(240, 71, 71))),
-    (Make-Btn "Открыть папку бэкапов" 230 { try { Start-Process "explorer.exe" "`"$script:BackupPath`"" } catch {} } ([System.Drawing.Color]::FromArgb(114, 137, 218))),
-    (Make-Btn "Запустить Discord" 460 { $exe = "$((Find-DiscordApp))\Discord.exe"; if(Test-Path $exe){ Start-Process $exe; Write-Log "Discord запущен" "SUCCESS"; Start-Sleep -s 2; Update-UI } } ([System.Drawing.Color]::FromArgb(67, 181, 129))),
-    (Make-Btn "Выход" 525 { $form.Close() } ([System.Drawing.Color]::FromArgb(116, 127, 141)))
+$pOptions.Controls.AddRange(@($script:ChkLoc, (Make-HelpBtn 10 "Языки" "Удаляет более 70 лишних языковых пакетов, оставляя только RU и EN. Это ускоряет старт."),  #[cite: 4]
+                              $script:ChkMod, (Make-HelpBtn 40 "Модули" "Удаляет мусорные модули телеметрии и игр, оставляя звук и Krisp."), #[cite: 4]
+                              $script:ChkCac, (Make-HelpBtn 70 "Кэш" "Чистит папку Cache, GPUCache и CodeCache, освобождая сотни мегабайт."))) #[cite: 4]
+
+# Лог-панель[cite: 4, 5]
+$script:RichTextBoxLog = New-Object System.Windows.Forms.RichTextBox -Property @{ Location = New-Object System.Drawing.Point(20, 245); Size = New-Object System.Drawing.Size(620, 355); BackColor = [System.Drawing.Color]::FromArgb(32, 34, 37); ForeColor = [System.Drawing.Color]::Gainsboro; Font = New-Object System.Drawing.Font("Consolas", 9.5); ReadOnly = $true; BorderStyle = "None" }
+
+# Кнопки[cite: 5]
+$panelButtons = New-Object System.Windows.Forms.Panel -Property @{ Location = New-Object System.Drawing.Point(660, 125); Size = New-Object System.Drawing.Size(200, 475) }
+function Make-Btn([string]$text, [int]$y, $action, $color = [System.Drawing.Color]::FromArgb(79, 84, 92)) {
+    $b = New-Object System.Windows.Forms.Button -Property @{ Text = $text; Location = New-Object System.Drawing.Point(0, $y); Size = New-Object System.Drawing.Size(200, 40); BackColor = $color; ForeColor = "White"; FlatStyle = "Flat"; Cursor = "Hand"; Font = New-Object System.Drawing.Font("Segoe UI", 9.5, 1) } #[cite: 5]
+    $b.FlatAppearance.BorderSize = 0; $b.Add_Click($action); return $b
+}
+$panelButtons.Controls.AddRange(@(
+    (Make-Btn "Создать Backup" 0 { Create-Backup }),
+    (Make-Btn "Очистить Discord" 50 { Start-CleaningProcess } ([System.Drawing.Color]::FromArgb(237, 66, 69))), #[cite: 5]
+    (Make-Btn "Восстановить" 100 { Restore-Backup } ([System.Drawing.Color]::FromArgb(88, 101, 242))), #[cite: 5]
+    (Make-Btn "Удалить Backup" 150 { Delete-Backup }), #[cite: 5]
+    (Make-Btn "Запустить Discord" 250 { Start-Discord } ([System.Drawing.Color]::FromArgb(57, 105, 54))), #[cite: 5]
+    (Make-Btn "Выход" 435 { $form.Close() })
 ))
 
-# Прогресс бар
-$script:ProgressBar = New-Object System.Windows.Forms.ProgressBar -Property @{ Location = New-Object System.Drawing.Point(0, 595); Size = New-Object System.Drawing.Size(900, 15); Dock = "Bottom" }
-$form.Controls.Add($script:ProgressBar)
+# Прогресс бар[cite: 5]
+$script:ProgressBar = New-Object System.Windows.Forms.ProgressBar -Property @{ Location = New-Object System.Drawing.Point(0, 615); Size = New-Object System.Drawing.Size(900, 10); Dock = "Bottom" }
 
-$form.Add_Shown({ Write-Log "Система загружена. Готово к работе." "SUCCESS"; Update-UI })
-$form.Add_FormClosing({ if ($script:Mutex) { $script:Mutex.ReleaseMutex(); $script:Mutex.Dispose() } })
+$form.Controls.AddRange(@($pHeader, $pStatus, $pOptions, $script:RichTextBoxLog, $panelButtons, $script:ProgressBar))
+$form.Add_Shown({ Write-Log "Интерфейс загружен." "SUCCESS"; Update-Status })
+$form.Add_FormClosing({ if ($script:Mutex) { $script:Mutex.ReleaseMutex(); $script:Mutex.Dispose() } }) #[cite: 5]
 
 [System.Windows.Forms.Application]::EnableVisualStyles()
 [System.Windows.Forms.Application]::Run($form)
