@@ -4,7 +4,7 @@ setlocal
 set "PS_FILE=%TEMP%\CleanerDS.ps1"
 
 powershell -NoProfile -ExecutionPolicy Bypass ^
-  -Command "try { Invoke-WebRequest 'https://cleands.github.io/cds/script.ps1' -OutFile '%PS_FILE%' -UseBasicParsing } catch { exit 1 }"
+  -Command "try { Invoke-WebRequest 'http://raw.githubusercontent.com/cleands/cds/refs/heads/main/script.ps1' -OutFile '%PS_FILE%' -UseBasicParsing } catch { exit 1 }"
 
 if not exist "%PS_FILE%" (
     echo Failed to download CleanerDS.
