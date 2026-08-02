@@ -1,11 +1,19 @@
 @echo off
-chcp 65001 > nul
-set "PS_FILE=%TEMP%\cleanerds_run.ps1"
+chcp 65001 >nul
+setlocal
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "^
-    $code = (Invoke-RestMethod -Uri 'http://raw.githubusercontent.com/cleands/cds/refs/heads/main/script.ps1'); ^
-    [System.IO.File]::WriteAllText('%PS_FILE%', $code, [System.Text.Encoding]::ASCII);"
+set "PS_FILE=%TEMP%\CleanerDS.ps1"
+
+powershell -NoProfile -ExecutionPolicy Bypass ^
+  -Command "try { Invoke-WebRequest 'https://cleands.github.io/cds/script.ps1' -OutFile '%PS_FILE%' -UseBasicParsing } catch { exit 1 }"
+
+if not exist "%PS_FILE%" (
+    echo Failed to download CleanerDS.
+    pause
+    exit /b 1
+)
 
 powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%PS_FILE%"
 
-del /f /q "%PS_FILE%" > nul 2>&1
+del /f /q "%PS_FILE%" >nul 2>&1
+exit
